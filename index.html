@@ -444,6 +444,63 @@ const cfg     = document.getElementById('cfg');
 const summary = document.getElementById('summary');
 const sumLine = document.getElementById('sumLine');
 
+// ── Audio ──────────────────────────────────────────────────
+let audioCtx = null;
+
+function initAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function beep(freq, dur, vol = 0.5) {
+  if (!audioCtx) return;
+  const osc  = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  osc.start();
+  osc.stop(audioCtx.currentTime + dur);
+}
+
+// countdown tick — work: high pitch | break: softer lower pitch
+function tickBeep(secs, phase) {
+  if (phase === 'work') {
+    secs === 1 ? beep(1200, 0.18, 0.6) : beep(880, 0.07, 0.35);
+  } else {
+    secs === 1 ? beep(740,  0.18, 0.5) : beep(550, 0.07, 0.25);
+  }
+}
+
+// completion fanfare — ascending arpeggio + sustain chord
+function completionSound() {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  const seq = [
+    { freq: 523,  t: 0.00, dur: 0.14, vol: 0.35 },  // C5
+    { freq: 659,  t: 0.13, dur: 0.14, vol: 0.38 },  // E5
+    { freq: 784,  t: 0.26, dur: 0.14, vol: 0.40 },  // G5
+    { freq: 1047, t: 0.39, dur: 0.55, vol: 0.45 },  // C6 — long sustain
+    { freq: 784,  t: 0.39, dur: 0.55, vol: 0.30 },  // G5 harmony
+    { freq: 659,  t: 0.39, dur: 0.55, vol: 0.25 },  // E5 harmony
+  ];
+  seq.forEach(({ freq, t, dur, vol }) => {
+    const osc  = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    const at = now + t;
+    gain.gain.setValueAtTime(0, at);
+    gain.gain.linearRampToValueAtTime(vol, at + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, at + dur);
+    osc.start(at); osc.stop(at + dur + 0.05);
+  });
+}
+
 // ── Ring helpers ───────────────────────────────────────────
 const COLORS = { work:'#c9ff3b', rest:'#32d2ff', done:'#bf85ff', idle:'#1f1f1f' };
 
@@ -462,10 +519,19 @@ function flashRing() {
 }
 
 // ── RAF tick ───────────────────────────────────────────────
+let prevSecs = -1;
+
 function tick() {
   const elapsed = Date.now() - S.t0;
   const rem = Math.max(0, S.remMs - elapsed);
   const secs = Math.ceil(rem / 1000);
+
+  // countdown beep: last 5 secs of WORK and BREAK
+  if ((S.phase === 'work' || S.phase === 'rest') && secs !== prevSecs && secs >= 1 && secs <= 5) {
+    tickBeep(secs, S.phase);
+  }
+  prevSecs = secs;
+
   setDisplay(secs, S.phase);
   setRing(rem / S.totMs, COLORS[S.phase]);
   if (rem <= 0) { onEnd(); return; }
@@ -502,6 +568,7 @@ function onEnd() {
 }
 
 function startWorkout() {
+  initAudio(); // must be triggered by user gesture for iOS
   summary.classList.remove('show');
   begin('work', 1);
 }
@@ -540,6 +607,7 @@ function finish() {
   rPhase.className = 'ring-phase done';
   updateUI();
   buzz('done');
+  completionSound();
 
   const w = timerDrum.get(), b = breakDrum.get(), r = repsVal;
   const total = r * w + Math.max(0, r - 1) * b;
