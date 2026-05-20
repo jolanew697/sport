@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/>
+<title>Workout Timer</title>
+<style>
+/* ── Reset & tokens ─────────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0a0a0a;
+  --card:#1c1c1e;
+  --card2:#2c2c2e;
+  --sep:#38383a;
+  --text:#ffffff;
+  --sub:#ebebf599;
+  --muted:#636366;
+  --work:#c9ff3b;
+  --rest:#32d2ff;
+  --done:#bf85ff;
+  --red:#ff453a;
+  --r:22px;
+}
+html,body{
+  min-height:100%;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif;
+  display:flex;justify-content:center;overflow-x:hidden;
+}
+.app{
+  width:100%;max-width:420px;
+  padding:0 16px 52px;
+  display:flex;flex-direction:column;gap:14px;
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+.hd{
+  display:flex;align-items:center;justify-content:center;
+  padding:18px 0 4px;
+  position:relative;
+}
+.hd-title{
+  font-size:13px;font-weight:600;letter-spacing:1.5px;
+  text-transform:uppercase;color:var(--muted);
+}
+
+/* ── Status bar ─────────────────────────────────────────── */
+.status-bar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 4px;min-height:28px;
+}
+.badge{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:5px 12px 5px 9px;border-radius:999px;
+  font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  background:var(--card);color:var(--muted);
+  transition:background .35s,color .35s;
+}
+.badge-dot{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--muted);transition:background .35s;
+  flex-shrink:0;
+}
+.badge.work{background:rgba(201,255,59,.12);color:var(--work)}
+.badge.work .badge-dot{background:var(--work);animation:pulse 1.4s ease-in-out infinite}
+.badge.rest{background:rgba(50,210,255,.12);color:var(--rest)}
+.badge.rest .badge-dot{background:var(--rest);animation:pulse 1.4s ease-in-out infinite}
+.badge.done{background:rgba(191,133,255,.12);color:var(--done)}
+.badge.done .badge-dot{background:var(--done)}
+.badge.paused .badge-dot{background:var(--muted)}
+
+.rep-counter{
+  font-size:14px;color:var(--muted);
+  font-variant-numeric:tabular-nums;letter-spacing:.5px;
+}
+.rep-counter b{color:var(--text);font-weight:600}
+
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
+
+/* ── Ring ───────────────────────────────────────────────── */
+.ring-wrap{
+  display:flex;justify-content:center;align-items:center;
+  position:relative;padding:4px 0;
+}
+.ring-svg{transform:rotate(-90deg);display:block}
+.r-bg{fill:none;stroke:#1f1f1f;stroke-width:10}
+.r-fg{
+  fill:none;stroke:var(--work);stroke-width:10;stroke-linecap:round;
+  transition:stroke-dashoffset .22s linear,stroke .4s ease;
+}
+.ring-inner{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:6px;pointer-events:none;
+}
+.ring-num{
+  font-size:76px;font-weight:800;line-height:1;letter-spacing:-4px;
+  font-variant-numeric:tabular-nums;
+  color:var(--muted);transition:color .35s;
+}
+.ring-num.work{color:var(--work)}
+.ring-num.rest{color:var(--rest)}
+.ring-num.done{color:var(--done)}
+
+.ring-phase{
+  font-size:11px;font-weight:700;letter-spacing:3px;
+  text-transform:uppercase;color:var(--muted);
+  transition:color .35s;
+}
+.ring-phase.work{color:rgba(201,255,59,.6)}
+.ring-phase.rest{color:rgba(50,210,255,.6)}
+.ring-phase.done{color:rgba(191,133,255,.6)}
+
+@keyframes flash{0%,100%{opacity:1}40%{opacity:.15}}
+.ring-flash{animation:flash .5s ease}
+
+/* ── Config section ─────────────────────────────────────── */
+.cfg{display:flex;flex-direction:column;gap:10px;transition:opacity .3s}
+.cfg.dim{opacity:.35;pointer-events:none}
+
+/* ── Pickers card ───────────────────────────────────────── */
+.pickers-card{
+  background:var(--card);border-radius:var(--r);
+  border:1px solid var(--sep);
+  display:flex;overflow:hidden;
+}
+.picker-col{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  padding:16px 0 14px;position:relative;
+}
+.picker-col+.picker-col{border-left:1px solid var(--sep)}
+
+.picker-lbl{
+  font-size:10px;font-weight:700;letter-spacing:2.5px;
+  text-transform:uppercase;color:var(--muted);margin-bottom:10px;
+}
+.picker-unit{
+  font-size:10px;font-weight:500;letter-spacing:1.5px;
+  text-transform:uppercase;color:var(--muted);margin-top:10px;
+  opacity:.6;
+}
+
+/* drum */
+.drum-wrap{
+  position:relative;width:100%;height:200px;overflow:hidden;
+}
+/* Selection band */
+.drum-band{
+  position:absolute;left:16px;right:16px;
+  top:calc(50% - 20px);height:40px;
+  background:rgba(255,255,255,.07);
+  border-radius:10px;z-index:1;pointer-events:none;
+}
+/* Gradient fade top + bottom */
+.drum-fade-t,.drum-fade-b{
+  position:absolute;left:0;right:0;height:76px;z-index:2;pointer-events:none;
+}
+.drum-fade-t{top:0;background:linear-gradient(to bottom,var(--card) 0%,transparent 100%)}
+.drum-fade-b{bottom:0;background:linear-gradient(to top,var(--card) 0%,transparent 100%)}
+/* Scroll container */
+.drum{
+  height:100%;overflow-y:scroll;
+  scroll-snap-type:y mandatory;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+}
+.drum::-webkit-scrollbar{display:none}
+.drum-sp{display:block;height:80px;flex-shrink:0} /* 2×40 spacer */
+/* Items */
+.pi{
+  height:40px;display:flex;align-items:center;justify-content:center;
+  scroll-snap-align:center;user-select:none;
+  font-variant-numeric:tabular-nums;
+  /* default far style */
+  color:#2c2c2e;font-size:13px;font-weight:400;opacity:.3;
+  transition:color .08s,font-size .08s,font-weight .08s,opacity .08s;
+}
+.pi.d0{color:var(--text);font-size:22px;font-weight:700;opacity:1}
+.pi.d1{color:#8e8e93;font-size:18px;font-weight:400;opacity:.75}
+.pi.d2{color:#48484a;font-size:15px;font-weight:400;opacity:.42}
+
+/* ── Repeat bar ─────────────────────────────────────────── */
+.repeat-bar{
+  background:var(--card);border-radius:var(--r);
+  border:1px solid var(--sep);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 20px;
+}
+.repeat-lbl{
+  font-size:10px;font-weight:700;letter-spacing:2.5px;
+  text-transform:uppercase;color:var(--muted);
+}
+.rep-ctrl{display:flex;align-items:center;gap:18px}
+.rb{
+  width:36px;height:36px;border-radius:50%;
+  background:var(--card2);color:var(--text);border:none;
+  font-size:22px;font-weight:300;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .12s,transform .1s;
+}
+.rb:active{transform:scale(.87);background:#3a3a3c}
+.rn{
+  font-size:28px;font-weight:700;min-width:38px;text-align:center;
+  font-variant-numeric:tabular-nums;
+}
+
+/* ── Action buttons ─────────────────────────────────────── */
+.actions{display:flex;gap:10px}
+.btn{
+  flex:1;padding:18px;border-radius:18px;border:none;
+  font-size:14px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;
+  cursor:pointer;transition:transform .1s,filter .1s;
+}
+.btn:active{transform:scale(.96);filter:brightness(.9)}
+.btn-s{background:var(--work);color:#000}
+.btn-p{background:var(--card2);color:var(--text)}
+.btn-x{background:transparent;border:1.5px solid var(--sep);color:var(--red)}
+.btn-d{background:var(--done);color:#fff}
+.btn-c{background:var(--rest);color:#000}
+
+/* ── Summary ─────────────────────────────────────────────── */
+.summary{
+  background:var(--card);border-radius:var(--r);
+  border:1px solid var(--sep);padding:24px 20px;
+  text-align:center;display:none;
+}
+.summary.show{display:block}
+.sum-icon{font-size:42px;margin-bottom:10px}
+.sum-title{font-size:20px;font-weight:700;color:var(--done);margin-bottom:6px}
+.sum-line{font-size:13px;color:var(--muted);line-height:1.9}
+.sum-line b{color:var(--text)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <div class="hd"><span class="hd-title">Workout Timer</span></div>
+
+  <!-- Status bar -->
+  <div class="status-bar">
+    <div class="badge" id="badge"><span class="badge-dot"></span><span id="badge-txt">READY</span></div>
+    <div class="rep-counter">Set <b id="rNow">0</b> / <b id="rTot">5</b></div>
+  </div>
+
+  <!-- Ring -->
+  <div class="ring-wrap">
+    <svg class="ring-svg" width="260" height="260" viewBox="0 0 260 260">
+      <circle class="r-bg" cx="130" cy="130" r="112"/>
+      <circle class="r-fg" id="rFg" cx="130" cy="130" r="112"
+        stroke-dasharray="703.7" stroke-dashoffset="703.7"/>
+    </svg>
+    <div class="ring-inner">
+      <div class="ring-num" id="rNum">--</div>
+      <div class="ring-phase" id="rPhase">tap start</div>
+    </div>
+  </div>
+
+  <!-- Config -->
+  <div class="cfg" id="cfg">
+
+    <!-- Pickers card: Timer + Break side by side -->
+    <div class="pickers-card">
+
+      <!-- Timer picker -->
+      <div class="picker-col">
+        <div class="picker-lbl">Timer</div>
+        <div class="drum-wrap">
+          <div class="drum-band"></div>
+          <div class="drum-fade-t"></div>
+          <div class="drum-fade-b"></div>
+          <div class="drum" id="drumTimer"></div>
+        </div>
+        <div class="picker-unit">seconds</div>
+      </div>
+
+      <!-- Break picker -->
+      <div class="picker-col">
+        <div class="picker-lbl">Break</div>
+        <div class="drum-wrap">
+          <div class="drum-band"></div>
+          <div class="drum-fade-t"></div>
+          <div class="drum-fade-b"></div>
+          <div class="drum" id="drumBreak"></div>
+        </div>
+        <div class="picker-unit">seconds</div>
+      </div>
+
+    </div>
+
+    <!-- Repeat bar -->
+    <div class="repeat-bar">
+      <div class="repeat-lbl">Repeat</div>
+      <div class="rep-ctrl">
+        <button class="rb" id="rMinus">−</button>
+        <div class="rn" id="rNum2">5</div>
+        <button class="rb" id="rPlus">+</button>
+      </div>
+    </div>
+
+  </div><!-- /cfg -->
+
+  <!-- Actions -->
+  <div class="actions" id="actions">
+    <button class="btn btn-s" id="btnMain" onclick="startWorkout()">▶  START</button>
+  </div>
+
+  <!-- Summary -->
+  <div class="summary" id="summary">
+    <div class="sum-icon">🏆</div>
+    <div class="sum-title">Workout Complete!</div>
+    <div class="sum-line" id="sumLine"></div>
+  </div>
+
+</div><!-- /app -->
+<script>
+// ── Constants ──────────────────────────────────────────────
+const ITEM_H   = 40;
+const SPACER_H = 80;        // 2 × ITEM_H
+const CIRCUM   = 703.716;   // 2π × 112
+
+// ── Drum picker factory ────────────────────────────────────
+function buildDrum(el, min, max, def) {
+  const frag = document.createDocumentFragment();
+
+  // top spacer
+  const ts = document.createElement('span');
+  ts.className = 'drum-sp'; frag.appendChild(ts);
+
+  // items
+  const items = [];
+  for (let v = min; v <= max; v++) {
+    const d = document.createElement('div');
+    d.className = 'pi';
+    d.textContent = v;
+    items.push(d);
+    frag.appendChild(d);
+  }
+
+  // bottom spacer
+  const bs = document.createElement('span');
+  bs.className = 'drum-sp'; frag.appendChild(bs);
+
+  el.appendChild(frag);
+
+  // apply styles: only update changed range for perf
+  let prevIdx = -1;
+
+  function style(idx) {
+    if (idx === prevIdx) return;
+    const lo = Math.max(0,            Math.min(prevIdx, idx) - 3);
+    const hi = Math.min(items.length - 1, Math.max(prevIdx, idx) + 3);
+    for (let i = lo; i <= hi; i++) {
+      const d = Math.abs(i - idx);
+      items[i].className = 'pi' + (d === 0 ? ' d0' : d === 1 ? ' d1' : d === 2 ? ' d2' : '');
+    }
+    prevIdx = idx;
+  }
+
+  // initial style: full pass once
+  function initStyle(idx) {
+    items.forEach((item, i) => {
+      const d = Math.abs(i - idx);
+      item.className = 'pi' + (d === 0 ? ' d0' : d === 1 ? ' d1' : d === 2 ? ' d2' : '');
+    });
+    prevIdx = idx;
+  }
+
+  // scroll to default
+  const initIdx = Math.max(0, Math.min(items.length - 1, def - min));
+  requestAnimationFrame(() => {
+    el.scrollTop = initIdx * ITEM_H;
+    initStyle(initIdx);
+  });
+
+  let raf;
+  el.addEventListener('scroll', () => {
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      const idx = Math.max(0, Math.min(items.length - 1,
+                    Math.round(el.scrollTop / ITEM_H)));
+      style(idx);
+    });
+  }, { passive: true });
+
+  return {
+    get: () => min + Math.max(0, Math.min(items.length - 1,
+                Math.round(el.scrollTop / ITEM_H))),
+    set: (v) => {
+      const idx = Math.max(0, Math.min(items.length - 1, v - min));
+      el.scrollTop = idx * ITEM_H;
+      initStyle(idx);
+    }
+  };
+}
+
+// ── Init pickers ───────────────────────────────────────────
+const timerDrum = buildDrum(document.getElementById('drumTimer'), 1, 300, 40);
+const breakDrum = buildDrum(document.getElementById('drumBreak'), 0, 300, 20);
+
+// ── Repeat stepper ─────────────────────────────────────────
+let repsVal = 5;
+const rNum2 = document.getElementById('rNum2');
+
+function setReps(v) {
+  repsVal = Math.max(1, Math.min(99, v));
+  rNum2.textContent = repsVal;
+  if (S.phase === 'idle') updateUI();
+}
+
+document.getElementById('rMinus').addEventListener('click', () => setReps(repsVal - 1));
+document.getElementById('rPlus' ).addEventListener('click', () => setReps(repsVal + 1));
+
+// long-press for fast change
+['rMinus','rPlus'].forEach(id => {
+  const btn = document.getElementById(id);
+  const d   = id === 'rMinus' ? -1 : 1;
+  let hold;
+  btn.addEventListener('pointerdown', () => { hold = setInterval(() => setReps(repsVal + d), 100); });
+  btn.addEventListener('pointerup',   () => clearInterval(hold));
+  btn.addEventListener('pointerleave',() => clearInterval(hold));
+});
+
+// ── State ──────────────────────────────────────────────────
+const S = {
+  phase: 'idle',   // idle | work | rest | paused | done
+  prev:  'work',   // last active phase (for pause restore)
+  rep:   0,
+  remMs: 0,
+  totMs: 0,
+  t0:    0,
+  raf:   null,
+};
+
+// ── DOM refs ───────────────────────────────────────────────
+const badge   = document.getElementById('badge');
+const badgeTxt= document.getElementById('badge-txt');
+const rNow    = document.getElementById('rNow');
+const rTot    = document.getElementById('rTot');
+const rFg     = document.getElementById('rFg');
+const rNum    = document.getElementById('rNum');
+const rPhase  = document.getElementById('rPhase');
+const actions = document.getElementById('actions');
+const cfg     = document.getElementById('cfg');
+const summary = document.getElementById('summary');
+const sumLine = document.getElementById('sumLine');
+
+// ── Ring helpers ───────────────────────────────────────────
+const COLORS = { work:'#c9ff3b', rest:'#32d2ff', done:'#bf85ff', idle:'#1f1f1f' };
+
+function setRing(frac, color) {
+  rFg.style.strokeDashoffset = CIRCUM * (1 - Math.max(0, Math.min(1, frac)));
+  rFg.style.stroke = color;
+}
+function setDisplay(secs, cls) {
+  rNum.textContent = secs;
+  rNum.className = 'ring-num ' + cls;
+}
+function flashRing() {
+  rNum.classList.remove('ring-flash');
+  void rNum.offsetWidth; // reflow to restart anim
+  rNum.classList.add('ring-flash');
+}
+
+// ── RAF tick ───────────────────────────────────────────────
+function tick() {
+  const elapsed = Date.now() - S.t0;
+  const rem = Math.max(0, S.remMs - elapsed);
+  const secs = Math.ceil(rem / 1000);
+  setDisplay(secs, S.phase);
+  setRing(rem / S.totMs, COLORS[S.phase]);
+  if (rem <= 0) { onEnd(); return; }
+  S.raf = requestAnimationFrame(tick);
+}
+
+// ── Phase engine ───────────────────────────────────────────
+function begin(phase, rep) {
+  cancelAnimationFrame(S.raf);
+  S.phase = phase;
+  S.prev  = phase;
+  S.rep   = rep;
+  S.totMs = (phase === 'work' ? timerDrum.get() : breakDrum.get()) * 1000;
+  S.remMs = S.totMs;
+  S.t0    = Date.now();
+  updateUI();
+  flashRing();
+  S.raf = requestAnimationFrame(tick);
+  buzz(phase);
+}
+
+function onEnd() {
+  cancelAnimationFrame(S.raf);
+  if (S.phase === 'work') {
+    if (S.rep < repsVal) {
+      const brk = breakDrum.get();
+      brk > 0 ? begin('rest', S.rep) : begin('work', S.rep + 1);
+    } else {
+      finish();
+    }
+  } else {
+    begin('work', S.rep + 1);
+  }
+}
+
+function startWorkout() {
+  summary.classList.remove('show');
+  begin('work', 1);
+}
+
+function pauseResume() {
+  if (S.phase === 'work' || S.phase === 'rest') {
+    cancelAnimationFrame(S.raf);
+    S.remMs = Math.max(0, S.remMs - (Date.now() - S.t0));
+    S.prev  = S.phase;
+    S.phase = 'paused';
+    updateUI();
+  } else if (S.phase === 'paused') {
+    S.phase = S.prev;
+    S.t0    = Date.now();
+    updateUI();
+    S.raf   = requestAnimationFrame(tick);
+  }
+}
+
+function stopWorkout() {
+  cancelAnimationFrame(S.raf);
+  S.phase = 'idle'; S.rep = 0;
+  setDisplay('--', '');
+  setRing(0, COLORS.idle);
+  rPhase.textContent = 'tap start';
+  rPhase.className = 'ring-phase';
+  updateUI();
+  summary.classList.remove('show');
+}
+
+function finish() {
+  S.phase = 'done';
+  setDisplay('✓', 'done');
+  setRing(1, COLORS.done);
+  rPhase.textContent = 'complete';
+  rPhase.className = 'ring-phase done';
+  updateUI();
+  buzz('done');
+
+  const w = timerDrum.get(), b = breakDrum.get(), r = repsVal;
+  const total = r * w + Math.max(0, r - 1) * b;
+  const mm = Math.floor(total / 60), ss = total % 60;
+  sumLine.innerHTML =
+    `<b>${r}</b> sets &nbsp;·&nbsp; <b>${w}s</b> work &nbsp;·&nbsp; <b>${b}s</b> break<br>
+     Total active: <b>${mm > 0 ? mm + 'm ' : ''}${ss}s</b>`;
+  summary.classList.add('show');
+}
+
+// ── Update UI ──────────────────────────────────────────────
+function updateUI() {
+  // badge
+  const BLABELS = { idle:'READY', work:'WORK', rest:'BREAK', paused:'PAUSED', done:'DONE' };
+  badgeTxt.textContent = BLABELS[S.phase] || 'READY';
+  badge.className = 'badge ' +
+    (S.phase === 'paused' ? S.prev : S.phase === 'idle' ? '' : S.phase);
+
+  // rep counter
+  rNow.textContent = S.phase === 'idle' ? '0' : S.rep;
+  rTot.textContent = repsVal;
+
+  // ring phase label
+  if (S.phase !== 'idle' && S.phase !== 'done') {
+    const labels = { work:'WORK', rest:'BREAK', paused:'PAUSED' };
+    rPhase.textContent = labels[S.phase] || '';
+    rPhase.className = 'ring-phase ' + (S.phase === 'paused' ? S.prev : S.phase);
+  }
+
+  // dim config when active
+  const active = S.phase === 'work' || S.phase === 'rest' || S.phase === 'paused';
+  cfg.classList.toggle('dim', active);
+
+  // buttons
+  const A = (html) => { actions.innerHTML = html; };
+  if (S.phase === 'idle') {
+    A(`<button class="btn btn-s" onclick="startWorkout()">▶  START</button>`);
+  } else if (S.phase === 'work' || S.phase === 'rest') {
+    A(`<button class="btn btn-p" onclick="pauseResume()">⏸  PAUSE</button>
+       <button class="btn btn-x" onclick="stopWorkout()">■  STOP</button>`);
+  } else if (S.phase === 'paused') {
+    A(`<button class="btn btn-s" onclick="pauseResume()">▶  RESUME</button>
+       <button class="btn btn-x" onclick="stopWorkout()">■  STOP</button>`);
+  } else if (S.phase === 'done') {
+    A(`<button class="btn btn-d" onclick="stopWorkout()">↺  RESTART</button>`);
+  }
+}
+
+// ── Vibration ──────────────────────────────────────────────
+function buzz(p) {
+  if (!navigator.vibrate) return;
+  ({work:[70], rest:[30,50,30], done:[80,60,80,60,160]})[p]
+    && navigator.vibrate(({work:[70],rest:[30,50,30],done:[80,60,80,60,160]})[p]);
+}
+
+// ── Keyboard ───────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space')  { e.preventDefault(); S.phase==='idle'?startWorkout():pauseResume(); }
+  if (e.code === 'Escape') stopWorkout();
+});
+
+// ── Boot ───────────────────────────────────────────────────
+updateUI();
+</script>
+</body>
+</html>
