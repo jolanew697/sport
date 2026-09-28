@@ -218,13 +218,16 @@ html,body{
 .btn-c{background:var(--rest);color:#000}
 
 /* ── Summary (di dalam ring saat selesai) ─────────────────── */
-.ring-done{display:none;text-align:center;padding:0 24px}
-.ring-inner.done .ring-num,
-.ring-inner.done .ring-phase{display:none}
-.ring-inner.done .ring-done{display:block}
-.sum-icon{font-size:34px;line-height:1;margin-bottom:6px}
-.sum-title{font-size:15px;font-weight:700;color:var(--done);margin-bottom:4px}
-.sum-line{font-size:11px;color:var(--muted);line-height:1.7}
+.ring-done{display:none;text-align:center;padding:0 16px}
+/* saat selesai: lingkaran countdown diganti total oleh blok ini */
+.ring-wrap.done .ring-svg{display:none}
+.ring-wrap.done .ring-inner{position:static;padding:40px 0}
+.ring-wrap.done .ring-num,
+.ring-wrap.done .ring-phase{display:none}
+.ring-wrap.done .ring-done{display:block}
+.sum-icon{font-size:42px;line-height:1;margin-bottom:10px}
+.sum-title{font-size:20px;font-weight:700;color:var(--done);margin-bottom:6px}
+.sum-line{font-size:13px;color:var(--muted);line-height:1.9}
 .sum-line b{color:var(--text)}
 </style>
 </head>
@@ -241,7 +244,7 @@ html,body{
   </div>
 
   <!-- Ring -->
-  <div class="ring-wrap">
+  <div class="ring-wrap" id="ringWrap">
     <svg class="ring-svg" width="260" height="260" viewBox="0 0 260 260">
       <circle class="r-bg" cx="130" cy="130" r="112"/>
       <circle class="r-fg" id="rFg" cx="130" cy="130" r="112"
@@ -437,7 +440,7 @@ const rNum    = document.getElementById('rNum');
 const rPhase  = document.getElementById('rPhase');
 const actions = document.getElementById('actions');
 const cfg     = document.getElementById('cfg');
-const ringInner = document.getElementById('ringInner');
+const ringWrap  = document.getElementById('ringWrap');
 const sumLine = document.getElementById('sumLine');
 
 // ── Audio ──────────────────────────────────────────────────
@@ -582,7 +585,7 @@ function startWorkout() {
     return;
   }
   initAudio(); // must be triggered by user gesture for iOS
-  ringInner.classList.remove('done');
+  ringWrap.classList.remove('done');
   begin('work', 1);
 }
 
@@ -608,7 +611,7 @@ function stopWorkout() {
   setRing(0, COLORS.idle);
   rPhase.textContent = 'tap start';
   rPhase.className = 'ring-phase';
-  ringInner.classList.remove('done');
+  ringWrap.classList.remove('done');
   updateUI();
 }
 
@@ -628,7 +631,7 @@ function finish() {
   sumLine.innerHTML =
     `<b>${r}</b> sets &nbsp;·&nbsp; <b>${w}s</b> work &nbsp;·&nbsp; <b>${b}s</b> break<br>
      Total active: <b>${mm > 0 ? mm + 'm ' : ''}${ss}s</b>`;
-  ringInner.classList.add('done');
+  ringWrap.classList.add('done');
 }
 
 // ── Update UI ──────────────────────────────────────────────
