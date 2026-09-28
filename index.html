@@ -217,16 +217,14 @@ html,body{
 .btn-d{background:var(--done);color:#fff}
 .btn-c{background:var(--rest);color:#000}
 
-/* ── Summary ─────────────────────────────────────────────── */
-.summary{
-  background:var(--card);border-radius:var(--r);
-  border:1px solid var(--sep);padding:24px 20px;
-  text-align:center;display:none;
-}
-.summary.show{display:block}
-.sum-icon{font-size:42px;margin-bottom:10px}
-.sum-title{font-size:20px;font-weight:700;color:var(--done);margin-bottom:6px}
-.sum-line{font-size:13px;color:var(--muted);line-height:1.9}
+/* ── Summary (di dalam ring saat selesai) ─────────────────── */
+.ring-done{display:none;text-align:center;padding:0 24px}
+.ring-inner.done .ring-num,
+.ring-inner.done .ring-phase{display:none}
+.ring-inner.done .ring-done{display:block}
+.sum-icon{font-size:34px;line-height:1;margin-bottom:6px}
+.sum-title{font-size:15px;font-weight:700;color:var(--done);margin-bottom:4px}
+.sum-line{font-size:11px;color:var(--muted);line-height:1.7}
 .sum-line b{color:var(--text)}
 </style>
 </head>
@@ -239,7 +237,7 @@ html,body{
   <!-- Status bar -->
   <div class="status-bar">
     <div class="badge" id="badge"><span class="badge-dot"></span><span id="badge-txt">READY</span></div>
-    <div class="rep-counter">Set <b id="rNow">0</b> / <b id="rTot">5</b></div>
+    <div class="rep-counter">Set <b id="rNow">0</b> / <b id="rTot">0</b></div>
   </div>
 
   <!-- Ring -->
@@ -249,9 +247,14 @@ html,body{
       <circle class="r-fg" id="rFg" cx="130" cy="130" r="112"
         stroke-dasharray="703.7" stroke-dashoffset="703.7"/>
     </svg>
-    <div class="ring-inner">
+    <div class="ring-inner" id="ringInner">
       <div class="ring-num" id="rNum">--</div>
       <div class="ring-phase" id="rPhase">tap start</div>
+      <div class="ring-done">
+        <div class="sum-icon">🏆</div>
+        <div class="sum-title">Workout Complete!</div>
+        <div class="sum-line" id="sumLine"></div>
+      </div>
     </div>
   </div>
 
@@ -292,7 +295,7 @@ html,body{
       <div class="repeat-lbl">Repeat</div>
       <div class="rep-ctrl">
         <button class="rb" id="rMinus">−</button>
-        <div class="rn" id="rNum2">5</div>
+        <div class="rn" id="rNum2">0</div>
         <button class="rb" id="rPlus">+</button>
       </div>
     </div>
@@ -302,13 +305,6 @@ html,body{
   <!-- Actions -->
   <div class="actions" id="actions">
     <button class="btn btn-s" id="btnMain" onclick="startWorkout()">▶  START</button>
-  </div>
-
-  <!-- Summary -->
-  <div class="summary" id="summary">
-    <div class="sum-icon">🏆</div>
-    <div class="sum-title">Workout Complete!</div>
-    <div class="sum-line" id="sumLine"></div>
   </div>
 
 </div><!-- /app -->
@@ -394,15 +390,15 @@ function buildDrum(el, min, max, def) {
 }
 
 // ── Init pickers ───────────────────────────────────────────
-const timerDrum = buildDrum(document.getElementById('drumTimer'), 1, 300, 40);
-const breakDrum = buildDrum(document.getElementById('drumBreak'), 0, 300, 20);
+const timerDrum = buildDrum(document.getElementById('drumTimer'), 0, 300, 0);
+const breakDrum = buildDrum(document.getElementById('drumBreak'), 0, 300, 0);
 
 // ── Repeat stepper ─────────────────────────────────────────
-let repsVal = 5;
+let repsVal = 0;
 const rNum2 = document.getElementById('rNum2');
 
 function setReps(v) {
-  repsVal = Math.max(1, Math.min(99, v));
+  repsVal = Math.max(0, Math.min(99, v));
   rNum2.textContent = repsVal;
   if (S.phase === 'idle') updateUI();
 }
@@ -441,7 +437,7 @@ const rNum    = document.getElementById('rNum');
 const rPhase  = document.getElementById('rPhase');
 const actions = document.getElementById('actions');
 const cfg     = document.getElementById('cfg');
-const summary = document.getElementById('summary');
+const ringInner = document.getElementById('ringInner');
 const sumLine = document.getElementById('sumLine');
 
 // ── Audio ──────────────────────────────────────────────────
@@ -473,6 +469,11 @@ function tickBeep(secs, phase) {
   } else {
     secs === 1 ? beep(740,  0.18, 0.5) : beep(550, 0.07, 0.25);
   }
+}
+
+// penanda awal fase WORK — nada panjang, sama seperti detik terakhir
+function startBeep() {
+  beep(1200, 0.18, 0.6);
 }
 
 // completion fanfare — ascending arpeggio + sustain chord
@@ -526,9 +527,14 @@ function tick() {
   const rem = Math.max(0, S.remMs - elapsed);
   const secs = Math.ceil(rem / 1000);
 
-  // countdown beep: last 5 secs of WORK and BREAK
-  if ((S.phase === 'work' || S.phase === 'rest') && secs !== prevSecs && secs >= 1 && secs <= 5) {
-    tickBeep(secs, S.phase);
+  // beeps: WORK bunyi tiap detik | BREAK hanya 5 detik terakhir
+  if ((S.phase === 'work' || S.phase === 'rest') && secs !== prevSecs && secs >= 1) {
+    const totSecs = Math.ceil(S.totMs / 1000);
+    if (S.phase === 'work') {
+      secs === totSecs ? startBeep() : tickBeep(secs, 'work');
+    } else if (secs <= 5) {
+      tickBeep(secs, 'rest');
+    }
   }
   prevSecs = secs;
 
@@ -547,6 +553,7 @@ function begin(phase, rep) {
   S.totMs = (phase === 'work' ? timerDrum.get() : breakDrum.get()) * 1000;
   S.remMs = S.totMs;
   S.t0    = Date.now();
+  prevSecs = -1;
   updateUI();
   flashRing();
   S.raf = requestAnimationFrame(tick);
@@ -568,8 +575,14 @@ function onEnd() {
 }
 
 function startWorkout() {
+  // timer / repeat masih 0 → tidak ada yang bisa dijalankan
+  if (timerDrum.get() === 0 || repsVal === 0) {
+    rPhase.textContent = 'set timer & repeat';
+    flashRing();
+    return;
+  }
   initAudio(); // must be triggered by user gesture for iOS
-  summary.classList.remove('show');
+  ringInner.classList.remove('done');
   begin('work', 1);
 }
 
@@ -595,8 +608,8 @@ function stopWorkout() {
   setRing(0, COLORS.idle);
   rPhase.textContent = 'tap start';
   rPhase.className = 'ring-phase';
+  ringInner.classList.remove('done');
   updateUI();
-  summary.classList.remove('show');
 }
 
 function finish() {
@@ -615,7 +628,7 @@ function finish() {
   sumLine.innerHTML =
     `<b>${r}</b> sets &nbsp;·&nbsp; <b>${w}s</b> work &nbsp;·&nbsp; <b>${b}s</b> break<br>
      Total active: <b>${mm > 0 ? mm + 'm ' : ''}${ss}s</b>`;
-  summary.classList.add('show');
+  ringInner.classList.add('done');
 }
 
 // ── Update UI ──────────────────────────────────────────────
