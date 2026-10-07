@@ -566,14 +566,17 @@ function begin(phase, rep) {
 function onEnd() {
   cancelAnimationFrame(S.raf);
   if (S.phase === 'work') {
-    if (S.rep < repsVal) {
-      const brk = breakDrum.get();
-      brk > 0 ? begin('rest', S.rep) : begin('work', S.rep + 1);
+    // tiap set punya break-nya sendiri, termasuk set terakhir
+    const brk = breakDrum.get();
+    if (brk > 0) {
+      begin('rest', S.rep);
+    } else if (S.rep < repsVal) {
+      begin('work', S.rep + 1);
     } else {
       finish();
     }
   } else {
-    begin('work', S.rep + 1);
+    S.rep < repsVal ? begin('work', S.rep + 1) : finish();
   }
 }
 
@@ -626,7 +629,7 @@ function finish() {
   completionSound();
 
   const w = timerDrum.get(), b = breakDrum.get(), r = repsVal;
-  const total = r * w + Math.max(0, r - 1) * b;
+  const total = r * (w + b);
   const mm = Math.floor(total / 60), ss = total % 60;
   sumLine.innerHTML =
     `<b>${r}</b> sets &nbsp;·&nbsp; <b>${w}s</b> work &nbsp;·&nbsp; <b>${b}s</b> break<br>
