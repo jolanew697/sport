@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPX Rute Sepeda</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f5f2; --panel: #ffffff; --text: #1d2320; --muted: #66706b;
+    --line: #dde1dc; --accent: #1f7a4d; --accent-2: #e8f3ec; --danger: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141816; --panel: #1c211f; --text: #e6ebe8; --muted: #95a09a;
+      --line: #2e3531; --accent: #4cc38a; --accent-2: #1d3128; --danger: #f2b8b5;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .app { display: grid; grid-template-columns: 380px 1fr; height: 100vh; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 18px 16px 24px; }
+  #map { height: 100%; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .sub { color: var(--muted); margin: 0 0 16px; font-size: 13px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 20px 0 8px; }
+  textarea, input[type=text] {
+    width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; font: inherit;
+  }
+  textarea { height: 92px; resize: vertical; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  button {
+    font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--panel);
+    color: var(--text); padding: 8px 12px; cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  @media (prefers-color-scheme: dark) { button.primary { color: #0d1a13; } }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .row > .grow { flex: 1; }
+  .msg { margin-top: 8px; font-size: 13px; color: var(--muted); }
+  .msg.err { color: var(--danger); }
+  ol.wps { margin: 0; padding: 0; list-style: none; }
+  ol.wps li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .dot { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; flex: none; }
+  .wp-name { flex: 1; min-width: 0; }
+  .wp-name b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .wp-name small { color: var(--muted); font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  .x { border: none; background: none; color: var(--muted); padding: 2px 6px; font-size: 16px; }
+  .routes { display: flex; flex-direction: column; gap: 8px; }
+  .route { border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; display: flex; gap: 10px; align-items: flex-start; }
+  .route.sel { border-color: var(--rc); background: var(--accent-2); box-shadow: 0 0 0 1.5px var(--rc); }
+  .route:hover { border-color: var(--rc); }
+  .swatch { width: 8px; align-self: stretch; border-radius: 4px; flex: none; background: var(--rc); }
+  .route .pick { margin-left: auto; font-size: 11px; font-weight: 700; color: #fff; background: var(--rc); border-radius: 999px; padding: 2px 8px; align-self: center; }
+  dialog { border: 1px solid var(--line); border-radius: 12px; padding: 18px; width: min(400px, calc(100vw - 32px)); background: var(--panel); color: var(--text); }
+  dialog::backdrop { background: #0008; }
+  dialog h3 { margin: 0 0 4px; font-size: 16px; }
+  .fname { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); margin-top: 10px; }
+  .fname:focus-within { border-color: var(--accent); }
+  .fname input { border: none !important; background: none !important; flex: 1; min-width: 0; outline: none; }
+  .fname span { color: var(--muted); padding-right: 10px; font-family: ui-monospace, Menlo, monospace; }
+  .route .t { font-weight: 600; }
+  .route .m { color: var(--muted); font-size: 12.5px; }
+  .hint { font-size: 12.5px; color: var(--muted); background: var(--bg); border-radius: 8px; padding: 10px; margin-top: 10px; }
+  .hint code { font-size: 11.5px; }
+  label.chk { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 13px; }
+  @media (max-width: 800px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 60vh; height: auto; }
+    aside { border-right: none; border-bottom: 1px solid var(--line); }
+    #map { height: 60vh; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>GPX Rute Sepeda</h1>
+    <p class="sub">Tempel embed Google Maps → pilih rute → unduh GPX untuk cyclocomputer.</p>
+
+    <h2>1. Link embed Google Maps</h2>
+    <textarea id="input" placeholder='&lt;iframe src="https://www.google.com/maps/embed?pb=!1m28..."&gt;&lt;/iframe&gt;'></textarea>
+    <div class="row">
+      <button class="primary grow" id="btnParse">Baca titik rute</button>
+      <button id="btnSample" title="Isi contoh">Contoh</button>
+    </div>
+    <div class="msg" id="parseMsg"></div>
+    <div class="hint">
+      Di Google Maps: buat rute (Petunjuk arah) → <b>Bagikan</b> → <b>Sematkan peta</b> → <b>Salin HTML</b>, lalu tempel di sini.
+      Bisa juga link <code>google.com/maps/dir/...</code>. Link pendek <code>maps.app.goo.gl</code> tidak bisa dibaca.
+      Rute beda dari Google? Edit sendiri: <b>tarik garis rute</b> ke jalan yang kamu mau, atau <b>klik jalan di peta</b> untuk menyisipkan titik singgah. Penanda bisa digeser, dan ada tombol Urungkan.
+    </div>
+
+    <h2>2. Titik rute</h2>
+    <ol class="wps" id="wps"></ol>
+    <div class="row">
+      <button id="btnUndo" disabled title="Urungkan (Ctrl+Z)">↶ Urungkan</button>
+      <button id="btnReverse">⇅ Balik arah</button>
+      <button id="btnClear">Hapus semua</button>
+      <button class="primary grow" id="btnRoute">Cari rute</button>
+    </div>
+
+    <h2>3. Pilih rute</h2>
+    <div class="routes" id="routes"><div class="msg">Belum ada rute.</div></div>
+
+    <h2>4. Buat GPX</h2>
+    <input type="text" id="gpxName" placeholder="Nama rute (mis. Gowes Minggu)">
+    <label class="chk"><input type="checkbox" id="optEle" checked> Sertakan ketinggian (elevasi)</label>
+    <label class="chk"><input type="checkbox" id="optWpt"> Sertakan titik rute sebagai waypoint</label>
+    <div class="row">
+      <button class="primary grow" id="btnGpx" disabled>⬇ Unduh GPX</button>
+    </div>
+    <div class="msg" id="gpxMsg"></div>
+  </aside>
+  <div id="map"></div>
+</div>
+
+<dialog id="saveDlg">
+  <form method="dialog" id="saveForm">
+    <h3>Simpan file GPX</h3>
+    <div class="msg" style="margin:0">Nama pendek lebih mudah dibaca di layar cyclocomputer.</div>
+    <div class="fname"><input type="text" id="fileName" maxlength="40" autocomplete="off" spellcheck="false"><span>.gpx</span></div>
+    <div class="msg" id="fileCount"></div>
+    <div class="row" style="justify-content:flex-end">
+      <button type="button" id="btnCancel">Batal</button>
+      <button type="submit" class="primary" id="btnSave">Simpan</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = ['#e8430c', '#2563eb', '#16a34a', '#c026d3', '#0891b2', '#ca8a04', '#be123c'];
+
+const map = L.map('map').setView([-6.2, 106.82], 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+
+let waypoints = [];   // {lat, lng, name}
+let markers = [];
+let routes = [];      // {label, source, coords:[[lat,lng,ele?]], distance, duration, ascent, layer}
+let selected = -1;
+
+/* ---------- Parsing link Google Maps ---------- */
+function extractUrl(text) {
+  text = text.trim();
+  const m = text.match(/src=["']([^"']+)["']/i);
+  if (m) text = m[1];
+  return text.replace(/&amp;/g, '&');
+}
+
+function parseGoogle(text) {
+  const raw = extractUrl(text);
+  let url;
+  try { url = new URL(raw); } catch { throw new Error('Bukan URL yang valid.'); }
+  if (/goo\.gl$/.test(url.hostname)) throw new Error('Link pendek (goo.gl) tidak bisa dibaca. Pakai "Sematkan peta" → Salin HTML.');
+
+  const pb = url.searchParams.get('pb');
+  if (pb) return parsePb(pb);
+
+  // Embed API: /maps/embed/v1/directions?origin=..&destination=..&waypoints=a|b
+  if (url.searchParams.get('origin')) {
+    const list = [url.searchParams.get('origin'),
+      ...(url.searchParams.get('waypoints') || '').split('|').filter(Boolean),
+      url.searchParams.get('destination')];
+    const pts = list.map(coordFromText);
+    if (pts.some(p => !p)) throw new Error('Link memakai nama tempat, bukan koordinat. Gunakan versi "Sematkan peta" (pb=...).');
+    return { points: pts, mode: url.searchParams.get('mode') };
+  }
+
+  // Link biasa: /maps/dir/lat,lng/lat,lng/@...  atau data=!1d<lng>!2d<lat>
+  const path = decodeURIComponent(url.pathname);
+  if (path.includes('/dir/')) {
+    const segs = path.split('/dir/')[1].split('/').filter(s => s && !s.startsWith('@') && !s.startsWith('data='));
+    const data = (path.match(/data=(.*)$/) || [])[1] || '';
+    const dataPts = [...data.matchAll(/!1d(-?\d+\.\d+)!2d(-?\d+\.\d+)/g)].map(m => ({ lat: +m[2], lng: +m[1] }));
+    let di = 0;
+    const pts = segs.map(s => {
+      const c = coordFromText(s);
+      if (c) return c;
+      const p = dataPts[di++];
+      return p ? { ...p, name: s.replace(/\+/g, ' ').split(',')[0] } : null;
+    }).filter(Boolean);
+    if (pts.length >= 2) return { points: pts };
+  }
+  throw new Error('Tidak menemukan titik rute di link ini.');
+}
+
+function coordFromText(s) {
+  const m = String(s).replace(/\+/g, '').match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  return m ? { lat: +m[1], lng: +m[2], name: '' } : null;
+}
+
+// pb Google: tiap titik ditulis "!3m2!1d<lat>!2d<lng>", nama tempat "!2s<nama>" sebelumnya.
+function parsePb(pb) {
+  const tok = pb.split('!').filter(Boolean);
+  const points = [];
+  let mode = null, lastName = '';
+  for (let i = 0; i < tok.length; i++) {
+    const t = tok[i];
+    if (mode === null && /^3e\d$/.test(t)) mode = +t.slice(2);
+    if (/^4m\d+$/.test(t)) lastName = '';
+    if (/^2s/.test(t)) lastName = t.slice(2);
+    if (t === '3m2' && /^1d-?[\d.]+$/.test(tok[i + 1] || '') && /^2d-?[\d.]+$/.test(tok[i + 2] || '')) {
+      points.push({ lat: +tok[i + 1].slice(2), lng: +tok[i + 2].slice(2), name: lastName });
+      lastName = ''; i += 2;
+    } else if (t === '1m2' && /^1d-?[\d.]+$/.test(tok[i + 1] || '') && /^2d-?[\d.]+$/.test(tok[i + 2] || '')) {
+      points.push({ lat: +tok[i + 2].slice(2), lng: +tok[i + 1].slice(2), name: 'Lewat sini (dari Google)' });
+      i += 2;
+    }
+  }
+  if (points.length < 2) {
+    // Embed tempat tunggal: viewport !2d<lng>!3d<lat>
+    throw new Error('Embed ini bukan rute (butuh minimal titik awal & tujuan). Buat "Petunjuk arah" dulu di Google Maps.');
+  }
+  return { points, mode };
+}
+function safeDecode(s) { try { return decodeURIComponent(s.replace(/\+/g, ' ')); } catch { return s; } }
+
+/* ---------- Waypoints ---------- */
+function setWaypoints(pts) { waypoints = pts.map(p => ({ ...p })); renderWaypoints(); clearRoutes(); }
+
+function renderWaypoints() {
+  markers.forEach(m => m.remove());
+  markers = waypoints.map((p, i) => {
+    const label = i === 0 ? 'A' : (i === waypoints.length - 1 ? 'B' : i);
+    const m = L.marker([p.lat, p.lng], {
+      draggable: true,
+      icon: L.divIcon({ className: '', html: `<div class="dot" style="border:2px solid #fff;box-shadow:0 1px 4px #0006">${label}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] })
+    }).addTo(map);
+    m.on('dragstart', pushUndo);
+    m.on('dragend', () => {
+      const ll = m.getLatLng();
+      waypoints[i] = { lat: ll.lat, lng: ll.lng, name: waypoints[i].name };
+      renderWaypoints(); findRoutes();
+    });
+    return m;
+  });
+  $('wps').innerHTML = waypoints.length ? waypoints.map((p, i) => `
+    <li><span class="dot">${i === 0 ? 'A' : (i === waypoints.length - 1 ? 'B' : i)}</span>
+      <span class="wp-name"><b>${esc(p.name || (i === 0 ? 'Titik awal' : i === waypoints.length - 1 ? 'Tujuan' : 'Titik ' + i))}</b>
+      <small>${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</small></span>
+      <button class="x" data-del="${i}" title="Hapus">×</button></li>`).join('')
+    : '<div class="msg">Tempel link, atau klik peta untuk menambah titik.</div>';
+  $('btnRoute').disabled = waypoints.length < 2;
+}
+
+$('wps').addEventListener('click', e => {
+  const i = e.target.dataset.del;
+  if (i === undefined) return;
+  pushUndo();
+  waypoints.splice(+i, 1); renderWaypoints(); waypoints.length >= 2 ? findRoutes() : clearRoutes();
+});
+function insertIndex(ll) {
+  const r = routes[selected];
+  if (r) {
+    const idxOf = q => {
+      let best = 0, bd = Infinity;
+      r.coords.forEach((c, i) => {
+        const d = (c[0] - q.lat) ** 2 + (c[1] - q.lng) ** 2;
+        if (d < bd) { bd = d; best = i; }
+      });
+      return best;
+    };
+    const t = idxOf(ll), w = waypoints.map(idxOf);
+    for (let i = 0; i < w.length - 1; i++) if (t >= w[i] && t <= w[i + 1]) return i + 1;
+  }
+  const d = (a, b) => map.distance([a.lat, a.lng], [b.lat, b.lng]);
+  let best = 1, cost = Infinity;
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const c = d(waypoints[i], ll) + d(ll, waypoints[i + 1]) - d(waypoints[i], waypoints[i + 1]);
+    if (c < cost) { cost = c; best = i + 1; }
+  }
+  return best;
+}
+
+function addVia(ll) {
+  pushUndo();
+  const p = { lat: ll.lat, lng: ll.lng, name: '' };
+  if (waypoints.length < 2) waypoints.push(p);
+  else { p.name = 'Lewat sini'; waypoints.splice(insertIndex(ll), 0, p); }
+  renderWaypoints(); waypoints.length >= 2 ? findRoutes() : clearRoutes();
+}
+map.on('click', e => { if (Date.now() - lastDrag > 400) addVia(e.latlng); });
+
+/* --- tarik garis rute untuk menambah titik singgah (seperti Google Maps) --- */
+let lastDrag = 0, ghost = null;
+function startLineDrag(ev) {
+  L.DomEvent.stop(ev);
+  map.dragging.disable();
+  ghost = L.marker(ev.latlng, {
+    icon: L.divIcon({ className: '', html: '<div class="dot" style="border:2px solid #fff;box-shadow:0 1px 6px #0007">+</div>', iconSize: [22, 22], iconAnchor: [11, 11] })
+  }).addTo(map);
+  const move = e => ghost.setLatLng(e.latlng);
+  const up = e => {
+    map.off('mousemove', move); map.off('mouseup', up);
+    map.dragging.enable();
+    const ll = e.latlng; ghost.remove(); ghost = null; lastDrag = Date.now();
+    addVia(ll);
+  };
+  map.on('mousemove', move); map.on('mouseup', up);
+}
+
+/* --- urungkan perubahan --- */
+let undoStack = [];
+function pushUndo() {
+  undoStack.push(JSON.stringify(waypoints));
+  if (undoStack.length > 30) undoStack.shift();
+  $('btnUndo').disabled = false;
+}
+$('btnUndo').onclick = () => {
+  const prev = undoStack.pop();
+  if (!prev) return;
+  waypoints = JSON.parse(prev);
+  $('btnUndo').disabled = !undoStack.length;
+  renderWaypoints(); waypoints.length >= 2 ? findRoutes() : clearRoutes();
+};
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !/INPUT|TEXTAREA/.test(e.target.tagName)) { e.preventDefault(); $('btnUndo').click(); }
+});
+$('btnReverse').onclick = () => { pushUndo(); waypoints.reverse(); renderWaypoints(); if (waypoints.length >= 2) findRoutes(); };
+$('btnClear').onclick = () => { pushUndo(); waypoints = []; renderWaypoints(); clearRoutes(); };
+
+/* ---------- Routing ---------- */
+function clearRoutes() {
+  routes.forEach(r => r.layer && r.layer.remove());
+  routes = []; selected = -1;
+  $('routes').innerHTML = '<div class="msg">Belum ada rute.</div>';
+  $('btnGpx').disabled = true;
+}
+
+async function osrmBike() {
+  const c = waypoints.map(p => `${p.lng},${p.lat}`).join(';');
+  const alt = waypoints.length === 2 ? '&alternatives=3' : '';
+  const r = await fetch(`https://routing.openstreetmap.de/routed-bike/route/v1/driving/${c}?overview=full&geometries=geojson${alt}`);
+  if (!r.ok) throw new Error('OSRM ' + r.status);
+  const j = await r.json();
+  if (j.code !== 'Ok') throw new Error(j.message || j.code);
+  return j.routes.map((rt, i) => ({
+    label: i === 0 ? 'OSRM Sepeda' : `OSRM Sepeda – alternatif ${i}`,
+    source: 'Rute tercepat versi OSRM',
+    coords: rt.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+    distance: rt.distance, duration: rt.duration
+  }));
+}
+
+async function brouter(profile, label, desc, altIdx = 0) {
+  const ll = waypoints.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join('|');
+  const r = await fetch(`https://brouter.de/brouter?lonlats=${ll}&profile=${profile}&alternativeidx=${altIdx}&format=geojson`);
+  if (!r.ok) throw new Error('BRouter ' + (await r.text()).slice(0, 120));
+  const j = await r.json();
+  const f = j.features[0], pr = f.properties;
+  return [{
+    label, source: desc,
+    coords: f.geometry.coordinates.map(([lng, lat, ele]) => [lat, lng, ele]),
+    distance: +pr['track-length'], duration: +pr['total-time'], ascent: +pr['filtered ascend']
+  }];
+}
+
+async function findRoutes() {
+  if (waypoints.length < 2) return;
+  clearRoutes();
+  $('routes').innerHTML = '<div class="msg">Mencari rute…</div>';
+  const jobs = [
+    brouter('fastbike', 'Sepeda balap (fastbike)', 'Utamakan jalan aspal mulus, cocok roadbike'),
+    brouter('trekking', 'Touring (trekking)', 'Seimbang, hindari jalan besar bila bisa'),
+    brouter('safety', 'Paling aman (safety)', 'Hindari lalu lintas ramai'),
+    brouter('shortest', 'Terpendek', 'Jarak paling pendek'),
+    osrmBike(),
+  ];
+  const res = await Promise.allSettled(jobs);
+  const errs = [];
+  res.forEach(r => r.status === 'fulfilled' ? routes.push(...r.value) : errs.push(r.reason.message));
+  // buang rute yang identik
+  routes = routes.filter((r, i) => !routes.slice(0, i).some(o => Math.abs(o.distance - r.distance) < 30 && o.coords.length && sameish(o, r)));
+  routes.forEach((r, i) => {
+    r.color = COLORS[i % COLORS.length];
+    const ll = r.coords.map(c => [c[0], c[1]]);
+    r.casing = L.polyline(ll, { color: '#fff', weight: 9, opacity: .9 });
+    r.line = L.polyline(ll, { color: r.color, weight: 5, opacity: .85 });
+    r.layer = L.featureGroup([r.casing, r.line]).addTo(map)
+      .on('click', ev => { L.DomEvent.stop(ev); selectRoute(i); })
+      .on('mousedown', ev => { if (i === selected) startLineDrag(ev); });
+  });
+  if (!routes.length) {
+    const net = errs.every(e => /fetch|NetworkError|Load failed/i.test(e));
+    $('routes').innerHTML = `<div class="msg err">Gagal mencari rute: ${esc([...new Set(errs)].join('; '))}</div>` + (net ? `
+      <div class="hint">Browser tidak bisa menghubungi server rute. Biasanya karena:<br>
+      • file dibuka langsung (alamatnya <code>file://</code>) di Safari atau panel pratinjau: buka lewat <b>Buka GPX Sepeda.command</b>, atau pakai Chrome;<br>
+      • internet mati, atau jaringan kantor/VPN/ad-blocker memblokir <code>brouter.de</code> dan <code>routing.openstreetmap.de</code>.</div>` : '');
+    return;
+  }
+  renderRoutes();
+  selectRoute(0);
+  map.fitBounds(L.featureGroup(routes.map(r => r.layer)).getBounds(), { padding: [30, 30] });
+}
+function sameish(a, b) {
+  const pick = r => r.coords[Math.floor(r.coords.length / 2)];
+  const p = pick(a), q = pick(b);
+  return Math.abs(p[0] - q[0]) < 0.0005 && Math.abs(p[1] - q[1]) < 0.0005;
+}
+
+function renderRoutes() {
+  $('routes').innerHTML = routes.map((r, i) => `
+    <div class="route ${i === selected ? 'sel' : ''}" data-i="${i}" style="--rc:${r.color}">
+      <span class="swatch"></span>
+      <div><div class="t">${esc(r.label)}</div>
+      <div class="m">${(r.distance / 1000).toFixed(1)} km · ±${fmtDur(r.duration)}${r.ascent ? ` · ↗ ${Math.round(r.ascent)} m` : ''}</div>
+      <div class="m">${esc(r.source)}</div></div>
+      ${i === selected ? '<span class="pick">Dipilih</span>' : ''}
+    </div>`).join('');
+}
+$('routes').addEventListener('click', e => {
+  const el = e.target.closest('.route'); if (el) selectRoute(+el.dataset.i);
+});
+
+function selectRoute(i) {
+  selected = i;
+  routes.forEach((r, j) => {
+    const on = j === i;
+    r.casing.setStyle({ weight: on ? 13 : 9, color: on ? '#111' : '#fff', opacity: on ? .55 : .9 });
+    r.line.setStyle({ weight: on ? 8 : 5, opacity: on ? 1 : .8, dashArray: on ? null : '10 8' });
+  });
+  routes[i].layer.bringToFront();
+  renderRoutes();
+  $('btnGpx').disabled = false;
+  $('gpxMsg').textContent = '';
+}
+
+function fmtDur(s) {
+  if (!s) return '-';
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return h ? `${h} j ${m} mnt` : `${m} mnt`;
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+/* ---------- GPX ---------- */
+async function fillElevation(coords) {
+  // Open-Meteo elevation API: maks 100 titik per permintaan
+  const out = coords.map(c => c.slice());
+  for (let i = 0; i < out.length; i += 100) {
+    const chunk = out.slice(i, i + 100);
+    const r = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${chunk.map(c => c[0].toFixed(5)).join(',')}&longitude=${chunk.map(c => c[1].toFixed(5)).join(',')}`);
+    if (!r.ok) throw new Error('elevasi ' + r.status);
+    const j = await r.json();
+    j.elevation.forEach((e, k) => out[i + k][2] = e);
+    $('gpxMsg').textContent = `Mengambil elevasi… ${Math.min(i + 100, out.length)}/${out.length}`;
+  }
+  return out;
+}
+
+function buildGpx(name, coords, withWpt) {
+  const x = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const pts = coords.map(c => `      <trkpt lat="${c[0].toFixed(6)}" lon="${c[1].toFixed(6)}">${c[2] != null && !isNaN(c[2]) ? `<ele>${(+c[2]).toFixed(1)}</ele>` : ''}</trkpt>`).join('\n');
+  const wpts = withWpt ? waypoints.map((p, i) => `  <wpt lat="${p.lat.toFixed(6)}" lon="${p.lng.toFixed(6)}"><name>${x(p.name || (i === 0 ? 'Start' : i === waypoints.length - 1 ? 'Finish' : 'Titik ' + i))}</name></wpt>`).join('\n') + '\n' : '';
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="GPX Rute Sepeda" xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+  <metadata><name>${x(name)}</name><time>${new Date().toISOString()}</time></metadata>
+${wpts}  <trk>
+    <name>${x(name)}</name>
+    <type>cycling</type>
+    <trkseg>
+${pts}
+    </trkseg>
+  </trk>
+</gpx>
+`;
+}
+
+$('btnGpx').onclick = () => {
+  if (!routes[selected]) return;
+  $('fileName').value = shortName();
+  updateCount();
+  $('saveDlg').showModal();
+  $('fileName').select();
+};
+$('btnCancel').onclick = () => $('saveDlg').close();
+$('fileName').addEventListener('input', updateCount);
+function cleanFile(s) { return s.replace(/\.gpx$/i, '').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_'); }
+function updateCount() {
+  const f = cleanFile($('fileName').value);
+  $('fileCount').textContent = f ? `Tersimpan sebagai: ${f}.gpx (${f.length} karakter)` : 'Nama file belum diisi.';
+  $('btnSave').disabled = !f;
+}
+function shortName() {
+  const word = s => (s || '').split(/[\s,]+/)[0].slice(0, 12);
+  const a = word(waypoints[0]?.name), b = word(waypoints[waypoints.length - 1]?.name);
+  const km = Math.round(routes[selected].distance / 1000) + 'km';
+  return cleanFile(a && b ? `${a}-${b}_${km}` : `Gowes_${km}_${new Date().toISOString().slice(5, 10)}`);
+}
+$('saveForm').addEventListener('submit', e => {
+  const f = cleanFile($('fileName').value);
+  if (!f) { e.preventDefault(); return; }
+  downloadGpx(f);
+});
+
+async function downloadGpx(fileName) {
+  const r = routes[selected]; if (!r) return;
+  const name = $('gpxName').value.trim() || defaultName();
+  let coords = r.coords;
+  $('btnGpx').disabled = true;
+  try {
+    if ($('optEle').checked && coords.some(c => c[2] == null)) {
+      try { coords = await fillElevation(coords); }
+      catch (e) { $('gpxMsg').textContent = 'Elevasi gagal diambil, GPX dibuat tanpa elevasi.'; }
+    }
+    if (!$('optEle').checked) coords = coords.map(c => [c[0], c[1]]);
+    const gpx = buildGpx(name, coords, $('optWpt').checked);
+    const blob = new Blob([gpx], { type: 'application/gpx+xml' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName + '.gpx';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    $('gpxMsg').textContent = `${fileName}.gpx dibuat: ${coords.length} titik, ${(r.distance / 1000).toFixed(1)} km.`;
+  } finally { $('btnGpx').disabled = false; }
+}
+function defaultName() {
+  const a = waypoints[0]?.name, b = waypoints[waypoints.length - 1]?.name;
+  return a && b ? `${a} - ${b}` : `Rute ${new Date().toISOString().slice(0, 10)}`;
+}
+
+/* ---------- Input ---------- */
+$('btnParse').onclick = () => {
+  const msg = $('parseMsg');
+  msg.className = 'msg';
+  try {
+    const { points, mode } = parseGoogle($('input').value);
+    setWaypoints(points);
+    const modes = { 0: 'mobil', 1: 'sepeda', 2: 'jalan kaki', 3: 'transportasi umum', 9: 'motor' };
+    msg.textContent = `${points.length} titik ditemukan${mode != null && modes[mode] ? ` (mode Google: ${modes[mode]})` : ''}.`;
+    if (!$('gpxName').value) $('gpxName').value = defaultName();
+    map.fitBounds(L.latLngBounds(points.map(p => [p.lat, p.lng])), { padding: [40, 40] });
+    findRoutes();
+  } catch (e) {
+    msg.className = 'msg err'; msg.textContent = e.message;
+  }
+};
+$('btnRoute').onclick = findRoutes;
+$('btnSample').onclick = () => {
+  $('input').value = '<iframe src="https://www.google.com/maps/embed?pb=!1m28!1m12!1m3!1d31731.5!2d106.82!3d-6.2!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!4m13!3e1!4m5!1s0x2e69f5d2e764b12d%3A0x3d2ad6e1e0e9bcc8!2sMonumen%20Nasional!3m2!1d-6.1753924!2d106.8271528!4m5!1s0x2e69f1ec2422b0b3%3A0x39a0d0fe47404d02!2sGelora%20Bung%20Karno!3m2!1d-6.2186!2d106.8023!5e0!3m2!1sid!2sid!4v1700000000000!5m2!1sid!2sid" width="600" height="450" style="border:0;" allowfullscreen="" loading="lazy"></iframe>';
+  $('btnParse').click();
+};
+renderWaypoints();
+</script>
+</body>
+</html>

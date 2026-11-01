@@ -1,0 +1,14 @@
+{
+  "name": "timer-workout",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev --port 8766",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4",
+    "nuxt": "^4.6.3"
+  }
+}

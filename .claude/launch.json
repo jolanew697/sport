@@ -1,0 +1,1 @@
+{"version":"0.0.1","configurations":[{"name":"timer-workout","runtimeExecutable":"npm","runtimeArgs":["run","dev"],"port":8766}]}
