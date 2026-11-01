@@ -1,6 +1,6 @@
 // Pencarian rute (OSRM, BRouter), pencarian tempat (Photon), elevasi (Open-Meteo), dan pembuat GPX.
 
-export const ROUTE_COLORS = ['#2f4bff', '#e5195f', '#7c3aed', '#0891b2', '#16a34a', '#be123c', '#17203a']
+export const ROUTE_COLORS = ['#e5192f', '#2f4bff', '#7c3aed', '#0891b2', '#16a34a', '#be123c', '#17203a']
 
 export const MODES = {
   bike:  { type: 'cycling', file: 'Gowes' },
@@ -36,6 +36,40 @@ async function brouter(waypoints, profile, label, desc, altIdx = 0) {
   }]
 }
 
+function decodePolyline6(str) {
+  const out = []
+  let i = 0, lat = 0, lng = 0
+  while (i < str.length) {
+    for (const axis of [0, 1]) {
+      let b, shift = 0, result = 0
+      do { b = str.charCodeAt(i++) - 63; result |= (b & 31) << shift; shift += 5 } while (b >= 32)
+      const d = (result & 1) ? ~(result >> 1) : (result >> 1)
+      axis === 0 ? lat += d : lng += d
+    }
+    out.push([lat / 1e6, lng / 1e6])
+  }
+  return out
+}
+
+// Valhalla (server publik FOSSGIS): costing 'motorcycle' mengikuti aturan motor, jadi tidak masuk jalan tol
+async function valhalla(waypoints, costing, options, name, desc, alternates = 2) {
+  const json = {
+    locations: waypoints.map(p => ({ lat: p.lat, lon: p.lng })),
+    costing, costing_options: { [costing]: options },
+    alternates, directions_type: 'none',
+  }
+  const r = await fetch(`https://valhalla1.openstreetmap.de/route?json=${encodeURIComponent(JSON.stringify(json))}`)
+  const j = await r.json()
+  if (!r.ok || !j.trip) throw new Error('Valhalla ' + (j.error || r.status))
+  return [j.trip, ...(j.alternates || []).map(a => a.trip)].map((t, i) => ({
+    label: i === 0 ? name : `${name} – alternatif ${i}`,
+    source: desc,
+    // tiap leg diawali titik akhir leg sebelumnya: buang duplikatnya
+    coords: t.legs.flatMap((leg, k) => decodePolyline6(leg.shape).slice(k ? 1 : 0)),
+    distance: t.summary.length * 1000, duration: t.summary.time,
+  }))
+}
+
 // satu janji per sumber rute; yang gagal diabaikan oleh pemanggil (Promise.allSettled)
 export function routeJobs(mode, wp) {
   // fungsi, bukan array langsung: hanya mode terpilih yang boleh memanggil server
@@ -48,12 +82,11 @@ export function routeJobs(mode, wp) {
       osrm(wp, 'bike', 'OSRM Sepeda'),
     ],
     motor: () => [
-      brouter(wp, 'moped', 'Motor (moped)', 'Jalan yang boleh dilalui motor'),
-      brouter(wp, 'car-fast', 'Tercepat', 'Utamakan jalan besar'),
-      brouter(wp, 'car-eco', 'Hemat BBM', 'Kecepatan stabil, lebih irit'),
-      osrm(wp, 'car', 'OSRM'),
+      valhalla(wp, 'motorcycle', { use_highways: 0, use_tolls: 0 }, 'Motor – tercepat', 'Tanpa jalan tol, mengikuti aturan motor'),
+      valhalla(wp, 'motorcycle', { use_highways: 0, use_tolls: 0, shortest: true }, 'Motor – terpendek', 'Jarak paling pendek, tanpa jalan tol', 0),
     ],
     car: () => [
+      valhalla(wp, 'auto', { use_tolls: 0 }, 'Mobil – tanpa tol', 'Menghindari jalan tol bila bisa'),
       brouter(wp, 'car-fast', 'Mobil – tercepat', 'Utamakan jalan besar dan cepat'),
       brouter(wp, 'car-eco', 'Mobil – hemat BBM', 'Kecepatan stabil, lebih irit'),
       osrm(wp, 'car', 'OSRM Mobil'),
@@ -113,17 +146,35 @@ export async function searchPlacesWide(q, center) {
 }
 
 /* ---------- Elevasi & GPX ---------- */
-// Open-Meteo elevation API: maks 100 titik per permintaan
+// Elevasi: Open-Meteo (maks 100 titik per permintaan); bila ditolak (mis. 429) coba lagi, lalu pakai OpenTopoData
+async function getJson(url, tries = 3) {
+  for (let i = 0; i < tries; i++) {
+    const r = await fetch(url)
+    if (r.ok) return r.json()
+    if (r.status !== 429 && r.status < 500) throw new Error('elevasi ' + r.status)
+    await new Promise(res => setTimeout(res, 1200 * (i + 1)))
+  }
+  throw new Error('elevasi: server sibuk')
+}
+
+async function elevationChunk(chunk) {
+  try {
+    const j = await getJson(`https://api.open-meteo.com/v1/elevation?latitude=${chunk.map(c => c[0].toFixed(5)).join(',')}&longitude=${chunk.map(c => c[1].toFixed(5)).join(',')}`, 3)
+    return j.elevation
+  } catch {
+    const j = await getJson(`https://api.opentopodata.org/v1/srtm90m?locations=${chunk.map(c => `${c[0].toFixed(5)},${c[1].toFixed(5)}`).join('|')}`)
+    return j.results.map(x => x.elevation)
+  }
+}
+
 export async function fillElevation(coords, onProgress) {
   const out = coords.map(c => c.slice())
   for (let i = 0; i < out.length; i += 100) {
-    const chunk = out.slice(i, i + 100)
-    const r = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${chunk.map(c => c[0].toFixed(5)).join(',')}&longitude=${chunk.map(c => c[1].toFixed(5)).join(',')}`)
-    if (!r.ok) throw new Error('elevasi ' + r.status)
-    const j = await r.json()
-    j.elevation.forEach((e, k) => out[i + k][2] = e)
+    const elev = await elevationChunk(out.slice(i, i + 100))
+    elev.forEach((e, k) => { out[i + k][2] = e })
     onProgress?.(Math.min(i + 100, out.length), out.length)
   }
+  if (out.some(c => c[2] == null)) throw new Error('elevasi: data kosong')
   return out
 }
 

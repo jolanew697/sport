@@ -58,9 +58,19 @@ export function parseGoogle(text) {
   // Link biasa: /maps/dir/lat,lng/lat,lng/@...  atau data=!1d<lng>!2d<lat>
   const path = decodeURIComponent(url.pathname)
   if (path.includes('/dir/')) {
-    const segs = path.split('/dir/')[1].split('/').filter(s => s && !s.startsWith('@') && !s.startsWith('data='))
+    const segs = path.split('/dir/')[1].split('/').filter(s => s && !s.startsWith('@') && !s.startsWith('data=') && !/^[a-z]{1,3}=/.test(s))
     const data = (path.match(/data=(.*)$/) || [])[1] || ''
     const dataPts = [...data.matchAll(/!1d(-?\d+\.\d+)!2d(-?\d+\.\d+)/g)].map(m => ({ lat: +m[2], lng: +m[1] }))
+    // data memuat SEMUA titik berurutan, termasuk titik singgah hasil geser di Google;
+    // nama di path hanya untuk titik awal dan tujuan
+    const nm = t => t.replace(/\+/g, ' ').split(',')[0]
+    if (dataPts.length >= 2 && dataPts.length >= segs.length && segs.some(t => !coordFromText(t))) {
+      const last = dataPts.length - 1
+      return {
+        points: dataPts.map((q, i) => ({ ...q, name: i === 0 ? nm(segs[0]) : i === last ? nm(segs[segs.length - 1]) : 'Lewat sini (dari Google)' })),
+        mode: (data.match(/!3e(\d)/) || [])[1] != null ? +data.match(/!3e(\d)/)[1] : null,
+      }
+    }
     let di = 0
     const pts = segs.map(s => {
       const c = coordFromText(s)
@@ -68,7 +78,9 @@ export function parseGoogle(text) {
       const p = dataPts[di++]
       return p ? { ...p, name: s.replace(/\+/g, ' ').split(',')[0] } : null
     }).filter(Boolean)
-    if (pts.length >= 2) return { points: pts }
+    // moda kendaraan di data link: !3e0 mobil, !3e1 sepeda, !3e9 motor
+    const gm = data.match(/!3e(\d)/)
+    if (pts.length >= 2) return { points: pts, mode: gm ? +gm[1] : null }
   }
   throw new Error('Tidak menemukan titik rute di link ini.')
 }

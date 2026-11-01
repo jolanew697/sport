@@ -17,6 +17,10 @@ const routeError = ref('')
 const routeNetErr = ref(false)
 const canUndo = ref(false)
 
+const profile = shallowRef(null)      // profil ketinggian rute terpilih
+const profileState = ref('idle')      // idle | loading | ok | error
+const chartMode = ref('grade')        // ele | grade
+
 const place = reactive({ A: '', B: '' })
 const sug = reactive({
   A: { items: [], on: -1, open: false, msg: '', wide: false, busy: false },
@@ -40,6 +44,8 @@ let undoStack = []
 let lastDrag = 0
 let ghost = null
 let routeSeq = 0
+let kmLayer = null
+let hoverMarker = null
 
 const lastIndex = computed(() => waypoints.value.length - 1)
 const cleanName = computed(() => cleanFile(fileName.value))
@@ -155,6 +161,17 @@ function onKey(e) {
   if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !/INPUT|TEXTAREA/.test(e.target.tagName)) { e.preventDefault(); undo() }
 }
 function reverse() { pushUndo(); waypoints.value.reverse(); if (waypoints.value.length >= 2) findRoutes() }
+// pulang pergi: setelah titik tujuan, kembali lewat titik singgah yang sama (urutan dibalik) sampai titik awal
+const isRoundTrip = computed(() => {
+  const wp = waypoints.value
+  return wp.length >= 3 && wp[0].lat === wp[wp.length - 1].lat && wp[0].lng === wp[wp.length - 1].lng
+})
+function roundTrip() {
+  pushUndo()
+  const wp = waypoints.value
+  waypoints.value = [...wp, ...wp.slice(0, -1).reverse().map(p => ({ ...p }))]
+  findRoutes({ fit: true })
+}
 function clearAll() { pushUndo(); waypoints.value = []; pendingEnd.value = null; clearRoutes() }
 
 /* ---------- Cari tempat ---------- */
@@ -245,9 +262,13 @@ function clearRoutes() {
   routes.value.forEach(r => r.layer?.remove())
   routes.value = []; selected.value = -1
   routeState.value = 'none'
+  profile.value = null; profileState.value = 'idle'
+  kmLayer?.remove(); kmLayer = null
+  onHover(null)
 }
 
-async function findRoutes() {
+// fit: zoom peta ke seluruh rute; hanya untuk pencarian baru, bukan tiap titik diedit (supaya tampilan tidak melompat)
+async function findRoutes({ fit = false } = {}) {
   const wp = waypoints.value
   if (wp.length < 2) return
   clearRoutes()
@@ -278,7 +299,7 @@ async function findRoutes() {
   }
   routeState.value = 'none'
   selectRoute(0)
-  map.fitBounds(L.featureGroup(found.map(r => r.layer)).getBounds(), { padding: [30, 30] })
+  if (fit) map.fitBounds(L.featureGroup(found.map(r => r.layer)).getBounds(), { padding: [30, 30] })
 }
 
 function selectRoute(i) {
@@ -290,7 +311,54 @@ function selectRoute(i) {
   })
   routes.value[i].layer.bringToFront()
   gpxMsg.value = ''
+  drawKm(routes.value[i])
+  loadProfile(i)
 }
+
+/* penanda kilometer sepanjang rute terpilih (seperti RideWithGPS) */
+function drawKm(r) {
+  kmLayer?.remove()
+  kmLayer = L.layerGroup().addTo(map)
+  const cum = cumulativeDistance(r.coords)
+  const km = cum[cum.length - 1] / 1000
+  const step = km <= 6 ? 1 : km <= 15 ? 2 : km <= 60 ? 5 : km <= 150 ? 10 : 20
+  let j = 0
+  for (let k = step; k < km; k += step) {
+    while (j < cum.length - 1 && cum[j] < k * 1000) j++
+    L.marker([r.coords[j][0], r.coords[j][1]], {
+      interactive: false, keyboard: false,
+      icon: L.divIcon({ className: '', html: `<div class="km">${k}</div>`, iconSize: [30, 18], iconAnchor: [15, 9] }),
+    }).addTo(kmLayer)
+  }
+}
+
+async function loadProfile(i) {
+  const r = routes.value[i]
+  if (r.profile) { profile.value = r.profile; profileState.value = 'ok'; return }
+  profile.value = null; profileState.value = 'loading'
+  try {
+    const p = await buildProfile(r.coords)
+    r.profile = p
+    if (routes.value[selected.value] === r) { profile.value = p; profileState.value = 'ok' }
+  } catch {
+    if (routes.value[selected.value] === r) profileState.value = 'error'
+  }
+}
+
+// geser kursor di grafik → penanda bergerak di peta
+function onHover(i) {
+  if (i == null || !profile.value) { hoverMarker?.remove(); hoverMarker = null; return }
+  const ll = profile.value.pos[i]
+  if (!hoverMarker) hoverMarker = L.circleMarker(ll, { radius: 7, weight: 3, color: '#17203a', fillColor: '#fff', fillOpacity: 1, interactive: false }).addTo(map)
+  else hoverMarker.setLatLng(ll)
+}
+
+// panel grafik muncul/hilang → ukuran peta berubah
+watch(selected, async (now, old) => {
+  if ((now >= 0) === (old >= 0)) return
+  await nextTick()
+  map?.invalidateSize()
+})
 
 /* ---------- GPX ---------- */
 function cleanFile(s) { return s.replace(/\.gpx$/i, '').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_') }
@@ -328,7 +396,9 @@ async function downloadGpx(name) {
   let coords = r.coords
   gpxBusy.value = true
   try {
-    if (optEle.value && coords.some(c => c[2] == null)) {
+    if (optEle.value && coords.some(c => c[2] == null) && r.profile) {
+      coords = interpolateElevation(coords, r.profile)
+    } else if (optEle.value && coords.some(c => c[2] == null)) {
       try { coords = await fillElevation(coords, (n, total) => { gpxMsg.value = `Mengambil elevasi… ${n}/${total}` }) }
       catch { gpxMsg.value = 'Elevasi gagal diambil, GPX dibuat tanpa elevasi.' }
     }
@@ -368,17 +438,19 @@ function useSample() { embedText.value = SAMPLE; parseEmbed() }
 /* ---------- Peta ---------- */
 onMounted(() => {
   map = L.map(mapEl.value).setView([-6.2, 106.82], 12)
-  // Esri World Street Map: gaya jalan berwarna mirip Google Maps (OSM standar tetap tersedia)
+  // 'Sepeda' (CyclOSM) menandai jalur dan lajur sepeda, mirip peta RideWithGPS; lapisan lain bisa dipilih di pojok kanan atas
   const layers = {
     'Peta': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles &copy; Esri' }),
+    'Sepeda': L.tileLayer('https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png', { maxZoom: 20, attribution: '&copy; OpenStreetMap, CyclOSM' }),
+    'Topografi': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17, attribution: '&copy; OpenStreetMap, OpenTopoMap' }),
     'Satelit': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles &copy; Esri' }),
     'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }),
   }
-  let base = 'Peta'
-  try { const b = localStorage.getItem('gpxBase2'); if (layers[b]) base = b } catch {}
+  let base = 'Sepeda'
+  try { const b = localStorage.getItem('gpxBase3'); if (layers[b]) base = b } catch {}
   layers[base].addTo(map)
   L.control.layers(layers, null, { position: 'topright' }).addTo(map)
-  map.on('baselayerchange', e => { try { localStorage.setItem('gpxBase2', e.name) } catch {} })
+  map.on('baselayerchange', e => { try { localStorage.setItem('gpxBase3', e.name) } catch {} })
   map.on('click', e => { if (Date.now() - lastDrag > 400) addVia(e.latlng) })
   drawMarkers()
 })
@@ -453,8 +525,9 @@ onDeactivated(() => document.removeEventListener('keydown', onKey))
       <div class="row">
         <button :disabled="!canUndo" title="Urungkan (Ctrl+Z)" @click="undo">↶ Urungkan</button>
         <button @click="reverse">⇅ Balik arah</button>
+        <button :disabled="waypoints.length < 2 || isRoundTrip" title="Tambah rute kembali ke titik awal" @click="roundTrip">⇄ Pulang pergi</button>
         <button @click="clearAll">Hapus semua</button>
-        <button class="primary grow" :disabled="waypoints.length < 2" @click="findRoutes">Cari rute</button>
+        <button class="primary grow" :disabled="waypoints.length < 2" @click="findRoutes({ fit: true })">Cari rute</button>
       </div>
 
       <h2>Pilih rute</h2>
@@ -485,7 +558,30 @@ onDeactivated(() => document.removeEventListener('keydown', onKey))
       </div>
       <div class="msg">{{ gpxMsg }}</div>
     </aside>
-    <div ref="mapEl" class="gpx-map"></div>
+    <div class="gpx-right">
+      <div ref="mapEl" class="gpx-map"></div>
+      <section v-if="selected >= 0" class="elev" aria-label="Profil ketinggian">
+        <div class="elev-head">
+          <div class="elev-tabs" role="group" aria-label="Tampilan grafik">
+            <button type="button" class="mode" :aria-pressed="chartMode === 'ele'" @click="chartMode = 'ele'">Elevasi</button>
+            <button type="button" class="mode" :aria-pressed="chartMode === 'grade'" @click="chartMode = 'grade'">Kemiringan</button>
+          </div>
+          <div v-if="profile" class="elev-stats">
+            <b>{{ (profile.total / 1000).toFixed(1) }} km</b>
+            <span>↗ {{ Math.round(profile.up) }} m</span>
+            <span>↘ {{ Math.round(profile.down) }} m</span>
+            <span>tertinggi {{ Math.round(profile.max) }} m</span>
+            <span>tanjakan maks {{ Math.max(0, profile.maxGrade).toFixed(0) }}%</span>
+          </div>
+        </div>
+        <div v-if="profileState === 'loading'" class="msg">Mengambil data ketinggian…</div>
+        <div v-else-if="profileState === 'error'" class="msg err">
+          Data ketinggian tidak tersedia (server elevasi sedang sibuk).
+          <button type="button" @click="loadProfile(selected)">Coba lagi</button>
+        </div>
+        <ElevationChart v-else-if="profile" :profile="profile" :mode="chartMode" @hover="onHover" />
+      </section>
+    </div>
 
     <dialog ref="saveDlg">
       <form method="dialog" @submit="onSave">
@@ -505,7 +601,15 @@ onDeactivated(() => document.removeEventListener('keydown', onKey))
 <style>
 .gpx { display: grid; grid-template-columns: 390px 1fr; height: 100%; overflow: hidden; }
 .gpx aside { background: var(--panel); overflow-y: auto; padding: 18px 16px 28px; counter-reset: step; }
-.gpx .gpx-map { height: 100%; border-left: 2.5px solid var(--ink); font-family: inherit; }
+.gpx .gpx-right { display: flex; flex-direction: column; min-height: 0; border-left: 2.5px solid var(--ink); }
+.gpx .gpx-map { flex: 1; min-height: 0; font-family: inherit; }
+.gpx .elev { flex: none; background: var(--panel); border-top: 2.5px solid var(--ink); padding: 8px 12px 10px; }
+.gpx .elev-head { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; margin-bottom: 4px; }
+.gpx .elev-tabs { display: flex; gap: 8px; }
+.gpx .elev-tabs button { padding: 4px 12px; font-size: 13px; }
+.gpx .elev-stats { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 13px; color: var(--muted); }
+.gpx .elev-stats b { color: var(--ink); }
+.gpx .km { background: #fff; border: 2px solid var(--ink); border-radius: 999px; font-size: 11px; font-weight: 800; line-height: 14px; text-align: center; color: var(--ink); }
 .gpx .leaflet-control-layers { border: 2px solid var(--ink); border-radius: 12px; box-shadow: 3px 3px 0 var(--ink); background: #fff; font: inherit; }
 .gpx .leaflet-control-layers-expanded { padding: 6px 10px; }
 .gpx .leaflet-control-layers label { font-weight: 600; }
@@ -604,6 +708,7 @@ onDeactivated(() => document.removeEventListener('keydown', onKey))
 @media (max-width: 800px) {
   .gpx { display: block; overflow-y: auto; }
   .gpx aside { overflow: visible; border-bottom: 2.5px solid var(--ink); }
-  .gpx .gpx-map { height: 60vh; border-left: none; }
+  .gpx .gpx-right { border-left: none; display: block; }
+  .gpx .gpx-map { height: 60vh; }
 }
 </style>
