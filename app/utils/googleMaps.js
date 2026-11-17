@@ -62,12 +62,14 @@ export function parseGoogle(text) {
     const data = (path.match(/data=(.*)$/) || [])[1] || ''
     const dataPts = [...data.matchAll(/!1d(-?\d+\.\d+)!2d(-?\d+\.\d+)/g)].map(m => ({ lat: +m[2], lng: +m[1] }))
     // data memuat SEMUA titik berurutan, termasuk titik singgah hasil geser di Google;
-    // nama di path hanya untuk titik awal dan tujuan
+    // nama di path: satu per titik bila jumlahnya sama, kalau tidak hanya awal dan tujuan
     const nm = t => t.replace(/\+/g, ' ').split(',')[0]
     if (dataPts.length >= 2 && dataPts.length >= segs.length && segs.some(t => !coordFromText(t))) {
       const last = dataPts.length - 1
       return {
-        points: dataPts.map((q, i) => ({ ...q, name: i === 0 ? nm(segs[0]) : i === last ? nm(segs[segs.length - 1]) : 'Lewat sini (dari Google)' })),
+        points: dataPts.map((q, i) => ({ ...q, name: segs.length === dataPts.length
+          ? (coordFromText(segs[i]) ? 'Lewat sini (dari Google)' : nm(segs[i]))
+          : i === 0 ? nm(segs[0]) : i === last ? nm(segs[segs.length - 1]) : 'Lewat sini (dari Google)' })),
         mode: (data.match(/!3e(\d)/) || [])[1] != null ? +data.match(/!3e(\d)/)[1] : null,
       }
     }
